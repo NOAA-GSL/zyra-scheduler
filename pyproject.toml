@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "zyra-scheduler"
+version = "0.1.0"
+description = "Orchestration repo for Zyra CI/scheduler; dev tooling only"
+authors = ["Eric Hackathorn <eric.j.hackathorn@noaa.gov>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.13"
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.6.3"
+pytest = "^8.2.0"
+
+[build-system]
+requires = ["poetry-core>=1.8.0"]
+build-backend = "poetry.core.masonry.api"
+

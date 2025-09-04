@@ -1,9 +1,9 @@
 {
-    "name": "rtvideo-dev",
+    "name": "zyra-scheduler-dev",
     "dockerComposeFile": [
         "../docker-compose.yml"
     ],
-    "service": "rtvideo",
+    "service": "zyra-scheduler",
     "remoteUser": "root",
     "workspaceFolder": "/app",
     "shutdownAction": "stopCompose",

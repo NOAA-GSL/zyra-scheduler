@@ -66,6 +66,6 @@ DATE_FORMAT=%Y%m%d
 ## Tips
 - Keep regexes anchored (`^...$`) to avoid accidental matches.
 - Escape backslashes in `.env` strings where needed (e.g., `\.png`).
-- Avoid secrets in dataset `.env` files. Provide credentials (e.g., AWS, Vimeo) via GitLab CI/CD variables or `$HOME/.rtvideo/credentials` on runners.
+- Avoid secrets in dataset `.env` files. Provide credentials (e.g., AWS, Vimeo) via GitHub Secrets or CI/CD variables.
 - Validate `DATE_FORMAT` against actual file names; it must align with the timestamp portion that `PATTERN` captures.
 - Prefer immutable image tags or digests for CI reliability; keep mutable tags like `latest` for dev/test only.

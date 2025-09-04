@@ -8,7 +8,7 @@ This repository orchestrates a real‑time video workflow using the [zyra](https
 ## Docs & Scheduling
 - Scheduling: use GitLab CI/CD pipelines and Schedules (see below).
 - Contributor guide: see `AGENTS.md` for structure, style, testing, and PR guidelines.
-- Local development: use `docker compose up --build -d` and `docker compose exec rtvideo bash`. The devcontainer prefers a `zyra-scheduler` base image (if provided) and layers Node.js + Codex CLI for local tooling. If none is provided, it falls back to `python:3.11-slim` for linting/tests.
+- Local development: use `docker compose up --build -d` and `docker compose exec zyra-scheduler bash`. The devcontainer prefers a `zyra-scheduler` base image (if provided) and layers Node.js + Codex CLI for local tooling. If none is provided, it falls back to `python:3.11-slim` for linting/tests.
 
 ### GitLab Pipelines
 - Manual run: set variables in the Run pipeline form:
@@ -24,7 +24,7 @@ This repository orchestrates a real‑time video workflow using the [zyra](https
 ## Setup
 - Create a `.env` from `.env.example` and set:
   - `HOST_DATA_PATH`: absolute host path for `/data` bind mount.
-  - (Optional) `ZYRA_SCHEDULER_IMAGE`: fully-qualified, accessible base image that provides `/usr/local/bin/rtvideo` (e.g., your org’s GHCR/GitLab Registry tag). If you omit this or cannot access the image, the devcontainer uses `python:3.11-slim` which is sufficient for local linting and tests.
+  - (Optional) `ZYRA_SCHEDULER_IMAGE`: container image to use for CI/devcontainer. If omitted, the devcontainer uses `python:3.11-slim`, which is sufficient for local linting and tests.
 
 ### Image source
 The recommended runtime image is published on GitHub Container Registry:
@@ -42,14 +42,14 @@ docker login ghcr.io
 # Option B: Comment/remove ZYRA_SCHEDULER_IMAGE in .env to use python:3.11-slim
 
 docker compose up --build -d
-docker compose exec rtvideo bash
+docker compose exec zyra-scheduler bash
 ```
 
 Security note: never commit real secrets. Keep `.env` untracked (see `.gitignore`) and set credentials via environment or your secrets store.
 
 ## Local Debugging (Dev Container)
 - Enter the container:
-  - `docker compose exec rtvideo bash`
+  - `docker compose exec zyra-scheduler bash`
 - Load a dataset env (example: fire):
   - `export DATASET_NAME=fire`
   - `set -a; . datasets/$DATASET_NAME.env; set +a`
@@ -101,7 +101,7 @@ Tips
   - Acquire → frames under `/data/images/${DATASET_ID}`.
   - Validate → metadata under `/data/images/${DATASET_ID}/metadata/frames-meta.json`.
   - Compose → video at `/data/output/${DATASET_ID}.mp4`.
-- Configure credentials for upload/update stages via CI/CD variables (Vimeo and AWS) or `$HOME/.rtvideo/credentials` on runners.
+- Configure credentials for upload/update stages via GitHub Secrets or CI/CD variables (Vimeo and AWS). For local development, place non-secret values in your project `.env` and keep it untracked.
 - Schedule it: CI/CD → Schedules → add `DATASET_NAME=<name>` (and optional `ZYRA_SCHEDULER_IMAGE`).
 
 #### Scheduling Options (GitLab)

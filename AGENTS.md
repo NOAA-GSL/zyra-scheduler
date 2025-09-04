@@ -9,7 +9,7 @@
 
 ## Build, Test, and Development Commands
 - Start dev container: `docker compose up --build -d`.
-- Shell into container: `docker compose exec rtvideo bash`.
+- Shell into container: `docker compose exec zyra-scheduler bash`.
 - Lint/format (inside container): `poetry run ruff check src tests && poetry run ruff format --check src tests`.
 - Run tests (inside container): `poetry run pytest -q` (coverage in CI).
 - Local CLI example: if developing helpers/scripts locally, prefer `zyra` CLI inside the devcontainer or Poetry scripts in this repo as applicable.
@@ -32,7 +32,7 @@
 - Keep docs updated (`README.md`, `datasets/README.md`, `datasets/*.env`). All CI checks must pass.
 
 ## Security & Configuration Tips
-- Never commit secrets. Provide creds via CI/CD variables or `$HOME/.rtvideo/credentials`. Keep `.env` untracked.
+- Never commit secrets. Provide creds via GitHub Secrets or CI/CD variables. Keep `.env` untracked.
 - Do not print tokens/keys in logs. Ensure `HOST_DATA_PATH` is writable for `/data/images`, `/data/output`, and `/data/logs`.
 - Prefer immutable GHCR tags or digests for CI reliability (e.g., pin `ghcr.io/noaa-gsl/zyra-scheduler@sha256:...`).
 
@@ -58,7 +58,7 @@ This repo orchestrates Docker, GitLab CI pipelines, and scheduling for real-time
   - Confirm `compose-video` produces `/data/output/${DATASET_ID}.mp4`.
   - Optional: `upload-vimeo` and `update-metadata` require Vimeo and AWS creds.
 - Configure credentials (non-secrets in env file; secrets in CI/CD):
-  - Vimeo: `VIMEO_CLIENT_ID`, `VIMEO_CLIENT_SECRET`, `VIMEO_ACCESS_TOKEN` as CI variables or `$HOME/.rtvideo/credentials` on runners.
-  - AWS: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` as CI variables or runner creds; `S3_URL` in env or CI.
+  - Vimeo: `VIMEO_CLIENT_ID`, `VIMEO_CLIENT_SECRET`, `VIMEO_ACCESS_TOKEN` via GitHub Secrets or your CI/CD variables.
+  - AWS: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` via GitHub Secrets or CI/CD variables; `S3_URL` in the dataset env or CI.
 - Set up a schedule: CI/CD → Schedules → New schedule; add variables `DATASET_NAME=<name>` and optionally `ZYRA_SCHEDULER_IMAGE`.
 - Pin the image for reliability (optional): set `ZYRA_SCHEDULER_IMAGE=ghcr.io/noaa-gsl/zyra-scheduler@sha256:<digest>` in CI/CD variables or schedule.
