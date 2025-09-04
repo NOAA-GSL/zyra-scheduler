@@ -1,0 +1,13 @@
+# Local environment and secrets (do not commit)
+.env
+
+# Bytecode and caches
+__pycache__/
+*.pyc
+
+# Virtual environments
+.venv/
+
+# Local data/output (optional; uncomment if used)
+_work/
+# out/

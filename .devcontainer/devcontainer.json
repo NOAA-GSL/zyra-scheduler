@@ -1,0 +1,20 @@
+{
+    "name": "rtvideo-dev",
+    "dockerComposeFile": [
+        "../docker-compose.yml"
+    ],
+    "service": "rtvideo",
+    "remoteUser": "root",
+    "workspaceFolder": "/app",
+    "shutdownAction": "stopCompose",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-python.python",
+                "ms-azuretools.vscode-docker"
+            ]
+        }
+    },
+    "postStartCommand": "[ -f .env ] || touch .env",
+    "postCreateCommand": "poetry install --no-root --with dev || true"
+}

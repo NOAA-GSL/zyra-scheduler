@@ -1,0 +1,23 @@
+services:
+  zyra-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Allow overriding via .env; default to a plain Python base for dev
+        ZYRA_SCHEDULER_IMAGE: ${ZYRA_SCHEDULER_IMAGE:-python:3.11-slim}
+    # Ensure the container remains running for devcontainer/VSC attach
+    # Overrides any ENTRYPOINT from a runtime image (e.g., zyra-scheduler)
+    entrypoint: ["tail", "-f", "/dev/null"]
+    volumes:
+      - .:/app
+      - ${HOST_DATA_PATH}:/data
+    environment:
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - VIMEO_CLIENT_ID=${VIMEO_CLIENT_ID}
+      - VIMEO_CLIENT_SECRET=${VIMEO_CLIENT_SECRET}
+      - VIMEO_ACCESS_TOKEN=${VIMEO_ACCESS_TOKEN}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
