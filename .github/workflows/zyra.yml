@@ -51,9 +51,10 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: ${{ inputs.ZYRA_SCHEDULER_IMAGE || vars.ZYRA_SCHEDULER_IMAGE || 'ghcr.io/noaa-gsl/zyra-scheduler:latest' }}
-      # Provide /app and /data mounts inside the container for compatibility
+      # Provide /app and /data mounts inside the container and run as root for file command perms
       options: >-
         --entrypoint ""
+        --user 0
         --volume ${{ github.workspace }}:/app
         --volume ${{ github.workspace }}/_work:/data
     env:
@@ -176,6 +177,7 @@ jobs:
       image: ${{ inputs.ZYRA_SCHEDULER_IMAGE || vars.ZYRA_SCHEDULER_IMAGE || 'ghcr.io/noaa-gsl/zyra-scheduler:latest' }}
       options: >-
         --entrypoint ""
+        --user 0
         --volume ${{ github.workspace }}:/app
         --volume ${{ github.workspace }}/_work:/data
     env:
@@ -239,6 +241,7 @@ jobs:
       image: ${{ inputs.ZYRA_SCHEDULER_IMAGE || vars.ZYRA_SCHEDULER_IMAGE || 'ghcr.io/noaa-gsl/zyra-scheduler:latest' }}
       options: >-
         --entrypoint ""
+        --user 0
         --volume ${{ github.workspace }}:/app
         --volume ${{ github.workspace }}/_work:/data
     steps:
@@ -307,6 +310,7 @@ jobs:
       image: ${{ inputs.ZYRA_SCHEDULER_IMAGE || vars.ZYRA_SCHEDULER_IMAGE || 'ghcr.io/noaa-gsl/zyra-scheduler:latest' }}
       options: >-
         --entrypoint ""
+        --user 0
         --volume ${{ github.workspace }}:/app
         --volume ${{ github.workspace }}/_work:/data
     env:
@@ -351,6 +355,7 @@ jobs:
       image: ${{ inputs.ZYRA_SCHEDULER_IMAGE || vars.ZYRA_SCHEDULER_IMAGE || 'ghcr.io/noaa-gsl/zyra-scheduler:latest' }}
       options: >-
         --entrypoint ""
+        --user 0
         --volume ${{ github.workspace }}:/app
         --volume ${{ github.workspace }}/_work:/data
     env:
