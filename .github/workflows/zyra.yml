@@ -10,6 +10,8 @@
 # - Running container jobs as root to avoid file-command permission issues.
 # - Verifying required secrets at step time (not job-level) and failing early.
 # - Uploading artifacts for traceability and debugging.
+#
+# ### *** Zyra *** ### | Powered by NOAA/GSL
 name: Zyra Video Pipeline
 
 on:
