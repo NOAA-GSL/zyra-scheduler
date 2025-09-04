@@ -5,6 +5,49 @@ This repository is a starter template for building containerized workflows with 
 
 Included example: a real‑time image‑to‑video pipeline (FTP → metadata validate → MP4 compose → optional Vimeo upload → optional S3 update). Treat this as a reference implementation you can modify or replace with your own stages.
 
+## Quick Start: Add a Dataset
+- Create `datasets/<name>.env` with the required keys (see `datasets/README.md`).
+- Run the GitHub Actions workflow manually with input `DATASET_NAME=<name>` to validate:
+  - Acquire → frames under `_work/images/${DATASET_NAME}`.
+  - Validate → metadata under `_work/images/${DATASET_NAME}/metadata/frames-meta.json`.
+  - Compose → video at `_work/output/${DATASET_NAME}.mp4`.
+- Configure credentials for upload/update stages via GitHub Secrets (Vimeo and AWS). For local development, place non-secret values in your project `.env` and keep it untracked.
+- Schedule it: enable a cron in the per‑dataset wrapper under `.github/workflows/` (uncomment the `schedule:` block), or create your own wrapper with the desired cron.
+
+### Scheduling Tips
+- Cron examples: `30 3 * * *` (daily 03:30), `5 12 * * 4` (Thu 12:05). Times are UTC in GitHub Actions.
+- Variables: set `DATASET_NAME` in the wrapper’s `with:` section; use repo variables to share defaults (e.g., `ZYRA_SCHEDULER_IMAGE`).
+- Concurrency: multiple wrappers can run concurrently; frames are cached per dataset.
+- Reliability: pin the container image by digest; start with a smaller `SINCE_PERIOD` (e.g., `P30D`) to seed caches faster.
+
+## Current Datasets
+These are example datasets provided for demonstration. Each has a per‑dataset workflow under `.github/workflows/` with its cron schedule commented out. You can still run any of them manually from GitHub → Actions by choosing the corresponding dataset workflow, or re‑enable its schedule by uncommenting the `schedule:` block.
+
+The following examples are configured in `datasets/*.env`. Suggested crons are shown for reference if you choose to re‑enable scheduling.
+
+How to run manually
+- GitHub → Actions → choose the per‑dataset workflow (e.g., “Dataset (drought)”).
+- Click “Run workflow” and confirm the branch (typically `main`).
+- The run will use the dataset’s `.env` and produce artifacts under `_work/`.
+
+| Dataset (env) | Suggested Cron | When | Cadence | FTP (host + path) | Pattern | Basemap | Vimeo |
+|---|---|---|---|---|---|---|---|
+| drought (`drought.env`) | `5 12 * * 4` | Thu 12:05 | 7d | `ftp.nnvl.noaa.gov` `/SOS/DroughtRisk_Weekly` | `DroughtRisk_Weekly_YYYYMMDD.png` | — | `/videos/900195230` |
+| fire (`fire.env`) | `30 0 * * *` | Daily 00:30 | 1d | `public.sos.noaa.gov` `/rt/fire/4096` | `fire_YYYYMMDD.png` | `earth_vegetation.jpg` | `/videos/919356484` |
+| ozone (`ozone.env`) | `45 1 * * *` | Daily 01:45 | 1d | `public.sos.noaa.gov` `/rt/ozone/4096` | `ozone_YYYYMMDD.png` | — | `/videos/919343002` |
+| land_temp (`land_temp.env`) | `25 2 * * *` | Daily 02:25 | 1d | `public.sos.noaa.gov` `/rt/land_temp/4096` | `land_temp_YYYYMMDD.png` | — | `/videos/920212337` |
+| sst (`sst.env`) | `30 3 * * *` | Daily 03:30 | 1d | `public.sos.noaa.gov` `/rt/sst/nesdis/sst/4096` | `sst_YYYYMMDD.png` | — | `/videos/920241809` |
+| sst-anom (`sst-anom.env`) | `45 4 * * *` | Daily 04:45 | 1d | `public.sos.noaa.gov` `/rt/sst/nesdis/sst_anom/4096` | `sst_anom_YYYYMMDD.png` | `earth_vegetation.jpg` | `/videos/920245845` |
+| snow_ice (`snow_ice.env`) | `25 5 * * *` | Daily 05:25 | 1d | `public.sos.noaa.gov` `/rt/snow_ice/4096` | `snow_ice_YYYYMMDD.png` | — | `/videos/920619332` |
+| clouds (`clouds.env`) | `10 6 * * *` | Daily 06:10 | 10m | `ftp.sos.noaa.gov` `/sosrt/rt/noaa/sat/linear/raw` | `linear_rgb_cyl_YYYYMMDD_HHMM.jpg` | — | `/videos/907632335` |
+| enhanced-clouds (`enhanced-clouds.env`) | `30 7 * * *` | Daily 07:30 | 10m | `ftp.sos.noaa.gov` `/sosrt/rt/noaa/sat/enhanced/raw` | `enhanced_rgb_cyl_YYYYMMDD_HHMM.jpg` | — | `/videos/920672356` |
+| precip (`precip.env`) | `45 8 * * *` | Daily 08:45 | 30m | `public.sos.noaa.gov` `/rt/precip/3600` | `imergert_composite.YYYY-MM-DDTHH_MM_SSZ.png` | — | `/videos/921800789` |
+| precip-water (`precip-water.env`) | `45 9 * * *` | Daily 09:45 | 1d | `public.sos.noaa.gov` `/rt/precipitable_water/4096` | `pw_YYYYMMDD.png` | — | `/videos/923507546` |
+
+Notes
+- Basemap: when `BASEMAP_IMAGE` is set in the dataset env, the compose stage includes it via `--basemap <file>`.
+- Cadence: derived from `PERIOD_SECONDS` in each env; adjust to match source update intervals.
+
 ## Usage & Scheduling
 - Primary CI: GitHub Actions (reusable workflow and per‑dataset wrappers).
 - Contributor guide: see `AGENTS.md` for structure, style, testing, and PR guidelines.
