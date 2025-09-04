@@ -16,7 +16,7 @@ Included example: a real‑time image‑to‑video pipeline (FTP → metadata va
 - Scheduling: use per‑dataset wrappers (below). The reusable workflow itself has no cron.
 - Runtime container: defaults to `ghcr.io/noaa-gsl/zyra-scheduler:latest`. Override with workflow input or repo variable `ZYRA_SCHEDULER_IMAGE` (prefer pinned digest).
 - Working paths: binds the repo to `/app` and a workspace data dir to `/data` inside the job container.
-- Cache: caches `/data/images/$DATASET_NAME` keyed by dataset name to speed up runs.
+- Cache: caches `_work/images/$DATASET_NAME` keyed by dataset name to speed up runs.
 - Secrets (optional stages):
   - Vimeo upload: `VIMEO_CLIENT_ID`, `VIMEO_CLIENT_SECRET`, `VIMEO_ACCESS_TOKEN`.
   - S3 update: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` (and `S3_URL` in the dataset env).
@@ -109,9 +109,9 @@ Tips
 ### Quick Start: Add a Dataset
 - Create `datasets/<name>.env` with the required keys (see `datasets/README.md`).
 - Run the GitHub Actions workflow manually with input `DATASET_NAME=<name>` to validate:
-  - Acquire → frames under `/data/images/${DATASET_ID}`.
-  - Validate → metadata under `/data/images/${DATASET_ID}/metadata/frames-meta.json`.
-  - Compose → video at `/data/output/${DATASET_ID}.mp4`.
+  - Acquire → frames under `_work/images/${DATASET_NAME}`.
+  - Validate → metadata under `_work/images/${DATASET_NAME}/metadata/frames-meta.json`.
+  - Compose → video at `_work/output/${DATASET_NAME}.mp4`.
 -- Configure credentials for upload/update stages via GitHub Secrets (Vimeo and AWS). For local development, place non-secret values in your project `.env` and keep it untracked.
 - Schedule it: enable a cron in the per‑dataset wrapper under `.github/workflows/` (uncomment the `schedule:` block), or create your own wrapper with the desired cron.
 

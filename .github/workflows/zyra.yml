@@ -42,7 +42,6 @@ env:
 defaults:
   run:
     shell: bash
-    working-directory: /app
 
 jobs:
   acquire-images:
@@ -51,12 +50,10 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: ${{ inputs.ZYRA_SCHEDULER_IMAGE || vars.ZYRA_SCHEDULER_IMAGE || 'ghcr.io/noaa-gsl/zyra-scheduler:latest' }}
-      # Provide /app and /data mounts inside the container and run as root for file command perms
+      # Run as root for file command perms (checkout state files)
       options: >-
         --entrypoint ""
         --user 0
-        --volume ${{ github.workspace }}:/app
-        --volume ${{ github.workspace }}/_work:/data
     env:
       # Pass through optional secrets for later stages
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -91,12 +88,12 @@ jobs:
 
           zyra --version || true
 
-          # Working dirs inside container
-          echo "DATA_ROOT=/data" >> "$GITHUB_ENV"
-          echo "FRAMES_DIR=/data/images/${DATASET_NAME}" >> "$GITHUB_ENV"
-          echo "OUTPUT_DIR=/data/output" >> "$GITHUB_ENV"
-          echo "OUTPUT_PATH=/data/output/${DATASET_NAME}.mp4" >> "$GITHUB_ENV"
-          mkdir -p "/data/images/${DATASET_NAME}" "/data/output"
+          # Working dirs inside container (use workspace '_work')
+          echo "DATA_ROOT=${GITHUB_WORKSPACE}/_work" >> "$GITHUB_ENV"
+          echo "FRAMES_DIR=${GITHUB_WORKSPACE}/_work/images/${DATASET_NAME}" >> "$GITHUB_ENV"
+          echo "OUTPUT_DIR=${GITHUB_WORKSPACE}/_work/output" >> "$GITHUB_ENV"
+          echo "OUTPUT_PATH=${GITHUB_WORKSPACE}/_work/output/${DATASET_NAME}.mp4" >> "$GITHUB_ENV"
+          mkdir -p "${GITHUB_WORKSPACE}/_work/images/${DATASET_NAME}" "${GITHUB_WORKSPACE}/_work/output"
 
           # Persist dataset env to later steps in this job
           {
@@ -115,8 +112,8 @@ jobs:
       - name: Cache frames directory
         uses: actions/cache@v4
         with:
-          path: /data/images/${{ env.DATASET_NAME }}
-          key: ${{ runner.os }}-frames-${{ env.DATASET_NAME }}
+          path: _work/images/${{ inputs.DATASET_NAME || vars.DATASET_NAME }}
+          key: ${{ runner.os }}-frames-${{ inputs.DATASET_NAME || vars.DATASET_NAME }}
 
       - name: Acquire frames from FTP
         run: |
@@ -162,10 +159,10 @@ jobs:
       - name: Upload acquire artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: acquire-${{ env.DATASET_NAME }}
+          name: acquire-${{ inputs.DATASET_NAME || vars.DATASET_NAME }}
           path: |
-            /data/images/${{ env.DATASET_NAME }}/metadata/acquire-summary.txt
-            /data/images/${{ env.DATASET_NAME }}/preview
+            _work/images/${{ inputs.DATASET_NAME || vars.DATASET_NAME }}/metadata/acquire-summary.txt
+            _work/images/${{ inputs.DATASET_NAME || vars.DATASET_NAME }}/preview
           retention-days: 7
 
   validate-frames:
@@ -178,8 +175,6 @@ jobs:
       options: >-
         --entrypoint ""
         --user 0
-        --volume ${{ github.workspace }}:/app
-        --volume ${{ github.workspace }}/_work:/data
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -194,10 +189,10 @@ jobs:
           set -euo pipefail
           set -a; source "datasets/${DATASET_NAME}.env"; set +a
           case "${ZYRA_VERBOSITY}" in debug) echo "ZYRA_CLI_VERBOSE_FLAG=-v" >> "$GITHUB_ENV";; esac
-          echo "DATA_ROOT=/data" >> "$GITHUB_ENV"
-          echo "FRAMES_DIR=/data/images/${DATASET_NAME}" >> "$GITHUB_ENV"
-          echo "OUTPUT_DIR=/data/output" >> "$GITHUB_ENV"
-          echo "OUTPUT_PATH=/data/output/${DATASET_NAME}.mp4" >> "$GITHUB_ENV"
+          echo "DATA_ROOT=${GITHUB_WORKSPACE}/_work" >> "$GITHUB_ENV"
+          echo "FRAMES_DIR=${GITHUB_WORKSPACE}/_work/images/${DATASET_NAME}" >> "$GITHUB_ENV"
+          echo "OUTPUT_DIR=${GITHUB_WORKSPACE}/_work/output" >> "$GITHUB_ENV"
+          echo "OUTPUT_PATH=${GITHUB_WORKSPACE}/_work/output/${DATASET_NAME}.mp4" >> "$GITHUB_ENV"
           {
             echo "DATASET_ID=${DATASET_ID-}"
             echo "FTP_HOST=${FTP_HOST-}"
@@ -214,8 +209,8 @@ jobs:
       - name: Restore frame cache
         uses: actions/cache@v4
         with:
-          path: /data/images/${{ env.DATASET_NAME }}
-          key: ${{ runner.os }}-frames-${{ env.DATASET_NAME }}
+          path: _work/images/${{ inputs.DATASET_NAME || vars.DATASET_NAME }}
+          key: ${{ runner.os }}-frames-${{ inputs.DATASET_NAME || vars.DATASET_NAME }}
 
       - name: Generate frames metadata
         run: |
@@ -229,8 +224,8 @@ jobs:
       - name: Upload metadata artifact
         uses: actions/upload-artifact@v4
         with:
-          name: metadata-${{ env.DATASET_NAME }}
-          path: /data/images/${{ env.DATASET_NAME }}/metadata/frames-meta.json
+          name: metadata-${{ inputs.DATASET_NAME || vars.DATASET_NAME }}
+          path: _work/images/${{ inputs.DATASET_NAME || vars.DATASET_NAME }}/metadata/frames-meta.json
 
   compose-video:
     if: ${{ (inputs.DATASET_NAME || vars.DATASET_NAME) != '' }}
@@ -242,8 +237,6 @@ jobs:
       options: >-
         --entrypoint ""
         --user 0
-        --volume ${{ github.workspace }}:/app
-        --volume ${{ github.workspace }}/_work:/data
     steps:
       - uses: actions/checkout@v4
 
@@ -252,8 +245,8 @@ jobs:
           set -euo pipefail
           set -a; source "datasets/${DATASET_NAME}.env"; set +a
           case "${ZYRA_VERBOSITY}" in debug) echo "ZYRA_CLI_VERBOSE_FLAG=-v" >> "$GITHUB_ENV";; esac
-          echo "FRAMES_DIR=/data/images/${DATASET_NAME}" >> "$GITHUB_ENV"
-          echo "OUTPUT_PATH=/data/output/${DATASET_NAME}.mp4" >> "$GITHUB_ENV"
+          echo "FRAMES_DIR=${GITHUB_WORKSPACE}/_work/images/${DATASET_NAME}" >> "$GITHUB_ENV"
+          echo "OUTPUT_PATH=${GITHUB_WORKSPACE}/_work/output/${DATASET_NAME}.mp4" >> "$GITHUB_ENV"
           {
             echo "DATASET_ID=${DATASET_ID-}"
             echo "FTP_HOST=${FTP_HOST-}"
@@ -270,8 +263,8 @@ jobs:
       - name: Restore frame cache
         uses: actions/cache@v4
         with:
-          path: /data/images/${{ env.DATASET_NAME }}
-          key: ${{ runner.os }}-frames-${{ env.DATASET_NAME }}
+          path: _work/images/${{ inputs.DATASET_NAME || vars.DATASET_NAME }}
+          key: ${{ runner.os }}-frames-${{ inputs.DATASET_NAME || vars.DATASET_NAME }}
 
       - name: Compose MP4
         run: |
@@ -297,8 +290,8 @@ jobs:
       - name: Upload video artifact
         uses: actions/upload-artifact@v4
         with:
-          name: video-${{ env.DATASET_NAME }}
-          path: /data/output/${{ env.DATASET_NAME }}.mp4
+          name: video-${{ inputs.DATASET_NAME || vars.DATASET_NAME }}
+          path: _work/output/${{ inputs.DATASET_NAME || vars.DATASET_NAME }}.mp4
           retention-days: 7
 
   upload-vimeo:
@@ -311,8 +304,6 @@ jobs:
       options: >-
         --entrypoint ""
         --user 0
-        --volume ${{ github.workspace }}:/app
-        --volume ${{ github.workspace }}/_work:/data
     env:
       VIMEO_CLIENT_ID: ${{ secrets.VIMEO_CLIENT_ID }}
       VIMEO_CLIENT_SECRET: ${{ secrets.VIMEO_CLIENT_SECRET }}
@@ -325,7 +316,7 @@ jobs:
           set -euo pipefail
           set -a; source "datasets/${DATASET_NAME}.env"; set +a
           case "${ZYRA_VERBOSITY}" in debug) echo "ZYRA_CLI_VERBOSE_FLAG=-v" >> "$GITHUB_ENV";; esac
-          echo "OUTPUT_PATH=/data/output/${DATASET_NAME}.mp4" >> "$GITHUB_ENV"
+          echo "OUTPUT_PATH=${GITHUB_WORKSPACE}/_work/output/${DATASET_NAME}.mp4" >> "$GITHUB_ENV"
           {
             echo "DATASET_ID=${DATASET_ID-}"
             echo "FTP_HOST=${FTP_HOST-}"
@@ -356,8 +347,6 @@ jobs:
       options: >-
         --entrypoint ""
         --user 0
-        --volume ${{ github.workspace }}:/app
-        --volume ${{ github.workspace }}/_work:/data
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -369,8 +358,8 @@ jobs:
           set -euo pipefail
           set -a; source "datasets/${DATASET_NAME}.env"; set +a
           case "${ZYRA_VERBOSITY}" in debug) echo "ZYRA_CLI_VERBOSE_FLAG=-v" >> "$GITHUB_ENV";; esac
-          echo "FRAMES_DIR=/data/images/${DATASET_NAME}" >> "$GITHUB_ENV"
-          echo "OUTPUT_PATH=/data/output/${DATASET_NAME}.mp4" >> "$GITHUB_ENV"
+          echo "FRAMES_DIR=${GITHUB_WORKSPACE}/_work/images/${DATASET_NAME}" >> "$GITHUB_ENV"
+          echo "OUTPUT_PATH=${GITHUB_WORKSPACE}/_work/output/${DATASET_NAME}.mp4" >> "$GITHUB_ENV"
           {
             echo "DATASET_ID=${DATASET_ID-}"
             echo "FTP_HOST=${FTP_HOST-}"
@@ -387,8 +376,8 @@ jobs:
       - name: Restore frame cache
         uses: actions/cache@v4
         with:
-          path: /data/images/${{ env.DATASET_NAME }}
-          key: ${{ runner.os }}-frames-${{ env.DATASET_NAME }}
+          path: _work/images/${{ inputs.DATASET_NAME || vars.DATASET_NAME }}
+          key: ${{ runner.os }}-frames-${{ inputs.DATASET_NAME || vars.DATASET_NAME }}
 
       - name: Backup existing dataset.json from S3
         if: ${{ env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != '' }}
@@ -421,7 +410,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: metadata-${{ env.DATASET_NAME }}
+          name: metadata-${{ inputs.DATASET_NAME || vars.DATASET_NAME }}
           path: |
-            /data/images/${{ env.DATASET_NAME }}/metadata/dataset.json.bak
-            /data/images/${{ env.DATASET_NAME }}/metadata/frames-meta.json
+            _work/images/${{ inputs.DATASET_NAME || vars.DATASET_NAME }}/metadata/dataset.json.bak
+            _work/images/${{ inputs.DATASET_NAME || vars.DATASET_NAME }}/metadata/frames-meta.json

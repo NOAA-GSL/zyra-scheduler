@@ -17,7 +17,7 @@ Each dataset has a small POSIX-compatible `.env` file in this folder named `<nam
 - `DATASET_ID`: A unique, stable identifier for the dataset used in paths and metadata (UPPER_SNAKE recommended), e.g., `INTERNAL_SOS_DROUGHT_RT`.
 
 ## Required keys
-- `DATASET_ID`: Unique ID used for `/data/images/${DATASET_ID}` and output naming.
+- `DATASET_ID`: Unique ID used for output naming and paths.
 - `FTP_HOST`: FTP host name (no scheme), e.g., `ftp.nnvl.noaa.gov`.
 - `FTP_PATH`: Remote path on the FTP server where frames live, e.g., `/SOS/DroughtRisk_Weekly`.
 - `VIMEO_URI`: Target Vimeo video URI to replace, e.g., `/videos/900195230`.
@@ -61,9 +61,9 @@ DATE_FORMAT=%Y%m%d
 - The parent pipeline passes `DATASET_NAME` to the child template. Each job runs:
   - `. "datasets/${DATASET_NAME}.env"` to load these variables in the container.
 - Paths and outputs:
-  - Frames sync to `/data/images/${DATASET_ID}`.
-  - Metadata is written to `/data/images/${DATASET_ID}/metadata/`.
-  - Composed video output: `/data/output/${DATASET_ID}.mp4`.
+  - Frames sync to `_work/images/${DATASET_NAME}`.
+  - Metadata is written to `_work/images/${DATASET_NAME}/metadata/`.
+  - Composed video output: `_work/output/${DATASET_NAME}.mp4`.
 
 ## Tips
 - Keep regexes anchored (`^...$`) to avoid accidental matches.

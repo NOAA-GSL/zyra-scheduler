@@ -4,7 +4,7 @@
 - `datasets/`: Per‑dataset env files (e.g., `drought.env`); see `datasets/README.md`.
 - `.devcontainer/`: Local containerized dev environment.
 - `.github/workflows/`: GitHub Actions workflows (reusable + per‑dataset wrappers).
-- `Dockerfile`, `docker-compose.yml`: Build/run images; mount host data at `/data`.
+- `Dockerfile`, `docker-compose.yml`: Build/run images; local dev may mount host data at `/data`.
 - `README.md`: Usage, credentials, CI overview, and dataset docs.
 
 ## Build, Test, and Development Commands
@@ -33,14 +33,14 @@
 
 ## Security & Configuration Tips
 - Never commit secrets. Provide creds via GitHub Secrets or CI/CD variables. Keep `.env` untracked.
-- Do not print tokens/keys in logs. Ensure `HOST_DATA_PATH` is writable for `/data/images`, `/data/output`, and `/data/logs`.
+- Do not print tokens/keys in logs. For local dev, ensure `HOST_DATA_PATH` is writable for `/data/images`, `/data/output`, and `/data/logs`.
 - Prefer immutable GHCR tags or digests for CI reliability (e.g., pin `ghcr.io/noaa-gsl/zyra-scheduler@sha256:...`).
 
 ## CI/CD Overview
 - Actions jobs run in `ghcr.io/noaa-gsl/zyra-scheduler` by default; override via `ZYRA_SCHEDULER_IMAGE`.
 - Reusable workflow (`.github/workflows/zyra.yml`) expects `DATASET_NAME` and loads `datasets/<name>.env`.
 - Example stages: `acquire` → `validate` → `compose` → `upload` → `update`.
-- Caching: per‑dataset frames cached under `/data/images/${DATASET_NAME}`.
+- Caching: per‑dataset frames cached under `_work/images/${DATASET_NAME}`.
 - Artifacts: key outputs uploaded via `actions/upload-artifact`.
 
 ## Architecture Overview
@@ -51,9 +51,9 @@ This repo orchestrates Docker, GitHub Actions workflows, and scheduling for exam
   - `DATASET_ID`, `FTP_HOST`, `FTP_PATH`, `VIMEO_URI`, `SINCE_PERIOD`, `PERIOD_SECONDS`, `PATTERN`, `DATE_FORMAT`.
   - Optional: `S3_URL` (or provide via CI/CD variable).
 - Run the GitHub Actions workflow manually with `DATASET_NAME=<name>`.
-  - Confirm `acquire-images` syncs frames under `/data/images/${DATASET_ID}`.
-  - Confirm `validate-frames` writes `/data/images/${DATASET_ID}/metadata/frames-meta.json`.
-  - Confirm `compose-video` produces `/data/output/${DATASET_ID}.mp4`.
+  - Confirm `acquire-images` syncs frames under `_work/images/${DATASET_NAME}`.
+  - Confirm `validate-frames` writes `_work/images/${DATASET_NAME}/metadata/frames-meta.json`.
+  - Confirm `compose-video` produces `_work/output/${DATASET_NAME}.mp4`.
   - Optional: `upload-vimeo` and `update-metadata` require Vimeo and AWS creds.
 - Configure credentials (non-secrets in env file; secrets in CI/CD):
   - Vimeo: `VIMEO_CLIENT_ID`, `VIMEO_CLIENT_SECRET`, `VIMEO_ACCESS_TOKEN` via GitHub Secrets or your CI/CD variables.
