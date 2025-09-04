@@ -1,0 +1,17 @@
+name: Dataset (drought)
+
+on:
+  # schedule:
+  #   # Example: run at 04:45 UTC daily (disabled)
+  #   - cron: '45 4 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  run:
+    uses: ./.github/workflows/zyra.yml
+    with:
+      DATASET_NAME: drought
+      # Optional overrides:
+      # ZYRA_VERBOSITY: debug
+      # ZYRA_SCHEDULER_IMAGE: ghcr.io/noaa-gsl/zyra-scheduler@sha256:...
+    secrets: inherit

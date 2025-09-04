@@ -28,9 +28,9 @@ Each dataset has a small POSIX-compatible `.env` file in this folder named `<nam
 
 ## Optional keys
 - `S3_URL`: S3 URL for the dataset JSON used in the `update-metadata` stage (e.g., `s3://bucket/path/dataset.json`). If not provided here, set it as a CI/CD variable (project/group) or in the runner’s environment.
-- `BASEMAP_IMAGE`: Optional basemap filename to composite under the frames during the compose stage (e.g., `earth_vegetation.jpg`). If set, CI passes `--basemap <file>` to the composer.
+- `BASEMAP_IMAGE`: Optional basemap for compositing under frames. You can use either a plain filename (e.g., `earth_vegetation.jpg`, auto‑resolved by the Zyra CLI) or a package URL form (e.g., `pkg:zyra.assets/images/earth_vegetation.jpg`).
 
-### Basemap example
+### Basemap examples
 ```
 DATASET_ID=INTERNAL_SOS_FIRE_RT
 FTP_HOST=public.sos.noaa.gov
@@ -40,7 +40,9 @@ SINCE_PERIOD=P1Y
 PERIOD_SECONDS=86400
 PATTERN=^fire_[0-9]{8}\.png$
 DATE_FORMAT=%Y%m%d
+# Plain filename (auto‑resolved) or packaged asset reference
 BASEMAP_IMAGE=earth_vegetation.jpg
+# BASEMAP_IMAGE=pkg:zyra.assets/images/earth_vegetation.jpg
 ```
 
 ## Example (`drought.env`)

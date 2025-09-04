@@ -1,0 +1,13 @@
+name: Dataset (enhanced-clouds)
+
+on:
+  # schedule:
+  #   - cron: '30 7 * * *'  # disabled; manual runs only
+  workflow_dispatch: {}
+
+jobs:
+  run:
+    uses: ./.github/workflows/zyra.yml
+    with:
+      DATASET_NAME: enhanced-clouds
+    secrets: inherit

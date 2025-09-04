@@ -1,0 +1,13 @@
+name: Dataset (snow_ice)
+
+on:
+  # schedule:
+  #   - cron: '25 5 * * *'  # disabled; manual runs only
+  workflow_dispatch: {}
+
+jobs:
+  run:
+    uses: ./.github/workflows/zyra.yml
+    with:
+      DATASET_NAME: snow_ice
+    secrets: inherit

@@ -1,0 +1,13 @@
+name: Dataset (precip)
+
+on:
+  # schedule:
+  #   - cron: '45 8 * * *'  # disabled; manual runs only
+  workflow_dispatch: {}
+
+jobs:
+  run:
+    uses: ./.github/workflows/zyra.yml
+    with:
+      DATASET_NAME: precip
+    secrets: inherit

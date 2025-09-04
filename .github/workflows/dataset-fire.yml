@@ -1,0 +1,13 @@
+name: Dataset (fire)
+
+on:
+  # schedule:
+  #   - cron: '30 0 * * *'  # disabled; manual runs only
+  workflow_dispatch: {}
+
+jobs:
+  run:
+    uses: ./.github/workflows/zyra.yml
+    with:
+      DATASET_NAME: fire
+    secrets: inherit

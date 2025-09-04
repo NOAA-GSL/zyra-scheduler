@@ -1,0 +1,13 @@
+name: Dataset (clouds)
+
+on:
+  # schedule:
+  #   - cron: '10 6 * * *'  # disabled; manual runs only
+  workflow_dispatch: {}
+
+jobs:
+  run:
+    uses: ./.github/workflows/zyra.yml
+    with:
+      DATASET_NAME: clouds
+    secrets: inherit

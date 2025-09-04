@@ -1,0 +1,419 @@
+name: Zyra Video Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      DATASET_NAME:
+        description: Dataset env filename stem (e.g., drought)
+        required: true
+        type: string
+      ZYRA_VERBOSITY:
+        description: Log level (debug|info|quiet)
+        required: false
+        default: info
+        type: choice
+        options: [debug, info, quiet]
+      ZYRA_SCHEDULER_IMAGE:
+        description: Override container image
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      DATASET_NAME:
+        description: Dataset env filename stem (e.g., drought)
+        required: true
+        type: string
+      ZYRA_VERBOSITY:
+        description: Log level (debug|info|quiet)
+        required: false
+        default: info
+        type: string
+      ZYRA_SCHEDULER_IMAGE:
+        description: Override container image
+        required: false
+        type: string
+
+env:
+  # Prefer workflow inputs; otherwise fall back to repository variables
+  DATASET_NAME: ${{ inputs.DATASET_NAME || vars.DATASET_NAME }}
+  ZYRA_VERBOSITY: ${{ inputs.ZYRA_VERBOSITY || vars.ZYRA_VERBOSITY || 'info' }}
+  ZYRA_SCHEDULER_IMAGE: ${{ inputs.ZYRA_SCHEDULER_IMAGE || vars.ZYRA_SCHEDULER_IMAGE || 'ghcr.io/noaa-gsl/zyra-scheduler:latest' }}
+
+defaults:
+  run:
+    shell: bash
+    working-directory: /app
+
+jobs:
+  acquire-images:
+    if: ${{ env.DATASET_NAME != '' }}
+    name: Acquire images
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ env.ZYRA_SCHEDULER_IMAGE }}
+      # Provide /app and /data mounts inside the container for compatibility
+      options: >-
+        --entrypoint ""
+        --volume ${{ github.workspace }}:/app
+        --volume ${{ github.workspace }}/_work:/data
+    env:
+      # Pass through optional secrets for later stages
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      VIMEO_CLIENT_ID: ${{ secrets.VIMEO_CLIENT_ID }}
+      VIMEO_CLIENT_SECRET: ${{ secrets.VIMEO_CLIENT_SECRET }}
+      VIMEO_ACCESS_TOKEN: ${{ secrets.VIMEO_ACCESS_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare paths and load dataset env
+        id: prep
+        run: |
+          set -euo pipefail
+          if [[ -z "${DATASET_NAME}" ]]; then
+            echo "DATASET_NAME is not set. Exiting." >&2
+            exit 1
+          fi
+          if [[ ! -f "datasets/${DATASET_NAME}.env" ]]; then
+            echo "Missing datasets/${DATASET_NAME}.env" >&2
+            exit 1
+          fi
+          set -a; source "datasets/${DATASET_NAME}.env"; set +a
+
+          # Zyra verbosity
+          case "${ZYRA_VERBOSITY}" in
+            debug) echo "ZYRA_CLI_VERBOSE_FLAG=-v" >> "$GITHUB_ENV" ;;
+            info|quiet) : ;;
+            *) echo "Unknown ZYRA_VERBOSITY='${ZYRA_VERBOSITY}', defaulting to info" ;;
+          esac
+
+          zyra --version || true
+
+          # Working dirs inside container
+          echo "DATA_ROOT=/data" >> "$GITHUB_ENV"
+          echo "FRAMES_DIR=/data/images/${DATASET_NAME}" >> "$GITHUB_ENV"
+          echo "OUTPUT_DIR=/data/output" >> "$GITHUB_ENV"
+          echo "OUTPUT_PATH=/data/output/${DATASET_NAME}.mp4" >> "$GITHUB_ENV"
+          mkdir -p "/data/images/${DATASET_NAME}" "/data/output"
+
+          # Persist dataset env to later steps in this job
+          {
+            echo "DATASET_ID=${DATASET_ID-}"
+            echo "FTP_HOST=${FTP_HOST-}"
+            echo "FTP_PATH=${FTP_PATH-}"
+            echo "SINCE_PERIOD=${SINCE_PERIOD-}"
+            echo "PERIOD_SECONDS=${PERIOD_SECONDS-}"
+            echo "PATTERN=${PATTERN-}"
+            echo "DATE_FORMAT=${DATE_FORMAT-}"
+            echo "BASEMAP_IMAGE=${BASEMAP_IMAGE-}"
+            echo "VIMEO_URI=${VIMEO_URI-}"
+            echo "S3_URL=${S3_URL-}"
+          } >> "$GITHUB_ENV"
+
+      - name: Cache frames directory
+        uses: actions/cache@v4
+        with:
+          path: /data/images/${{ env.DATASET_NAME }}
+          key: ${{ runner.os }}-frames-${{ env.DATASET_NAME }}
+
+      - name: Acquire frames from FTP
+        run: |
+          set +e
+          zyra ${ZYRA_CLI_VERBOSE_FLAG:-} acquire ftp \
+            ftp://${FTP_HOST}${FTP_PATH} \
+            --sync-dir "${FRAMES_DIR}" \
+            --since-period "${SINCE_PERIOD}" \
+            --pattern "${PATTERN}" \
+            --date-format "${DATE_FORMAT}"
+          rc=$?
+          set -e
+          if [[ $rc -ne 0 ]]; then
+            echo "Acquire exited with rc=$rc; checking for frames before failing..."
+          fi
+          dl_count=$(find "${FRAMES_DIR}" -maxdepth 1 -type f \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' \) | wc -l)
+          if [[ "$dl_count" -gt 0 ]]; then
+            echo "Proceeding despite acquire errors; found ${dl_count} frames."
+          else
+            echo "No frames downloaded; failing acquire step (rc=${rc})." >&2
+            exit ${rc}
+          fi
+
+      - name: Write acquire summary and preview
+        run: |
+          mkdir -p "${FRAMES_DIR}/metadata" "${FRAMES_DIR}/preview"
+          {
+            echo "dataset_name=${DATASET_NAME}"
+            echo "dataset_id=${DATASET_ID}"
+            echo "ftp_host=${FTP_HOST}"
+            echo "ftp_path=${FTP_PATH}"
+            echo "since_period=${SINCE_PERIOD}"
+            echo "date_format=${DATE_FORMAT}"
+            echo -n "file_count="; find "${FRAMES_DIR}" -maxdepth 1 -type f \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' \) | wc -l
+            echo -n "dir_size="; du -sh "${FRAMES_DIR}" 2>/dev/null | awk '{print $1}'
+            echo "generated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > "${FRAMES_DIR}/metadata/acquire-summary.txt"
+          # Copy up to 6 newest files into preview
+          find "${FRAMES_DIR}" -maxdepth 1 -type f \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' \) -printf '%T@\t%p\n' \
+            | sort -nr | head -n 6 | cut -f2- \
+            | while IFS= read -r f; do cp -n "$f" "${FRAMES_DIR}/preview/"; done || true
+
+      - name: Upload acquire artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: acquire-${{ env.DATASET_NAME }}
+          path: |
+            /data/images/${{ env.DATASET_NAME }}/metadata/acquire-summary.txt
+            /data/images/${{ env.DATASET_NAME }}/preview
+          retention-days: 7
+
+  validate-frames:
+    if: ${{ env.DATASET_NAME != '' }}
+    name: Validate frames
+    runs-on: ubuntu-latest
+    needs: [acquire-images]
+    container:
+      image: ${{ env.ZYRA_SCHEDULER_IMAGE }}
+      options: >-
+        --entrypoint ""
+        --volume ${{ github.workspace }}:/app
+        --volume ${{ github.workspace }}/_work:/data
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      VIMEO_CLIENT_ID: ${{ secrets.VIMEO_CLIENT_ID }}
+      VIMEO_CLIENT_SECRET: ${{ secrets.VIMEO_CLIENT_SECRET }}
+      VIMEO_ACCESS_TOKEN: ${{ secrets.VIMEO_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load dataset env and dirs
+        run: |
+          set -euo pipefail
+          set -a; source "datasets/${DATASET_NAME}.env"; set +a
+          case "${ZYRA_VERBOSITY}" in debug) echo "ZYRA_CLI_VERBOSE_FLAG=-v" >> "$GITHUB_ENV";; esac
+          echo "DATA_ROOT=/data" >> "$GITHUB_ENV"
+          echo "FRAMES_DIR=/data/images/${DATASET_NAME}" >> "$GITHUB_ENV"
+          echo "OUTPUT_DIR=/data/output" >> "$GITHUB_ENV"
+          echo "OUTPUT_PATH=/data/output/${DATASET_NAME}.mp4" >> "$GITHUB_ENV"
+          {
+            echo "DATASET_ID=${DATASET_ID-}"
+            echo "FTP_HOST=${FTP_HOST-}"
+            echo "FTP_PATH=${FTP_PATH-}"
+            echo "SINCE_PERIOD=${SINCE_PERIOD-}"
+            echo "PERIOD_SECONDS=${PERIOD_SECONDS-}"
+            echo "PATTERN=${PATTERN-}"
+            echo "DATE_FORMAT=${DATE_FORMAT-}"
+            echo "BASEMAP_IMAGE=${BASEMAP_IMAGE-}"
+            echo "VIMEO_URI=${VIMEO_URI-}"
+            echo "S3_URL=${S3_URL-}"
+          } >> "$GITHUB_ENV"
+
+      - name: Restore frame cache
+        uses: actions/cache@v4
+        with:
+          path: /data/images/${{ env.DATASET_NAME }}
+          key: ${{ runner.os }}-frames-${{ env.DATASET_NAME }}
+
+      - name: Generate frames metadata
+        run: |
+          zyra ${ZYRA_CLI_VERBOSE_FLAG:-} transform metadata \
+            --frames-dir "${FRAMES_DIR}" \
+            --pattern "${PATTERN}" \
+            --datetime-format "${DATE_FORMAT}" \
+            --period-seconds ${PERIOD_SECONDS} \
+            --output "${FRAMES_DIR}/metadata/frames-meta.json"
+
+      - name: Upload metadata artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: metadata-${{ env.DATASET_NAME }}
+          path: /data/images/${{ env.DATASET_NAME }}/metadata/frames-meta.json
+
+  compose-video:
+    if: ${{ env.DATASET_NAME != '' }}
+    name: Compose video
+    runs-on: ubuntu-latest
+    needs: [validate-frames]
+    container:
+      image: ${{ env.ZYRA_SCHEDULER_IMAGE }}
+      options: >-
+        --entrypoint ""
+        --volume ${{ github.workspace }}:/app
+        --volume ${{ github.workspace }}/_work:/data
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load dataset env and dirs
+        run: |
+          set -euo pipefail
+          set -a; source "datasets/${DATASET_NAME}.env"; set +a
+          case "${ZYRA_VERBOSITY}" in debug) echo "ZYRA_CLI_VERBOSE_FLAG=-v" >> "$GITHUB_ENV";; esac
+          echo "FRAMES_DIR=/data/images/${DATASET_NAME}" >> "$GITHUB_ENV"
+          echo "OUTPUT_PATH=/data/output/${DATASET_NAME}.mp4" >> "$GITHUB_ENV"
+          {
+            echo "DATASET_ID=${DATASET_ID-}"
+            echo "FTP_HOST=${FTP_HOST-}"
+            echo "FTP_PATH=${FTP_PATH-}"
+            echo "SINCE_PERIOD=${SINCE_PERIOD-}"
+            echo "PERIOD_SECONDS=${PERIOD_SECONDS-}"
+            echo "PATTERN=${PATTERN-}"
+            echo "DATE_FORMAT=${DATE_FORMAT-}"
+            echo "BASEMAP_IMAGE=${BASEMAP_IMAGE-}"
+            echo "VIMEO_URI=${VIMEO_URI-}"
+            echo "S3_URL=${S3_URL-}"
+          } >> "$GITHUB_ENV"
+
+      - name: Restore frame cache
+        uses: actions/cache@v4
+        with:
+          path: /data/images/${{ env.DATASET_NAME }}
+          key: ${{ runner.os }}-frames-${{ env.DATASET_NAME }}
+
+      - name: Compose MP4
+        run: |
+          if [[ -n "${BASEMAP_IMAGE:-}" ]]; then
+            echo "Using basemap: ${BASEMAP_IMAGE}"
+            zyra ${ZYRA_CLI_VERBOSE_FLAG:-} visualize compose-video \
+              --frames "${FRAMES_DIR}" \
+              --output "${OUTPUT_PATH}" \
+              --basemap "${BASEMAP_IMAGE}"
+          else
+            zyra ${ZYRA_CLI_VERBOSE_FLAG:-} visualize compose-video \
+              --frames "${FRAMES_DIR}" \
+              --output "${OUTPUT_PATH}"
+          fi
+          if [[ ! -s "${OUTPUT_PATH}" ]]; then
+            echo "No video generated at ${OUTPUT_PATH}" >&2
+            exit 1
+          fi
+          if command -v ffprobe >/dev/null 2>&1; then
+            ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 "${OUTPUT_PATH}" >/dev/null 2>&1
+          fi
+
+      - name: Upload video artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-${{ env.DATASET_NAME }}
+          path: /data/output/${{ env.DATASET_NAME }}.mp4
+          retention-days: 7
+
+  upload-vimeo:
+    if: ${{ env.DATASET_NAME != '' && secrets.VIMEO_ACCESS_TOKEN != '' }}
+    name: Upload to Vimeo
+    runs-on: ubuntu-latest
+    needs: [compose-video, validate-frames]
+    container:
+      image: ${{ env.ZYRA_SCHEDULER_IMAGE }}
+      options: >-
+        --entrypoint ""
+        --volume ${{ github.workspace }}:/app
+        --volume ${{ github.workspace }}/_work:/data
+    env:
+      VIMEO_CLIENT_ID: ${{ secrets.VIMEO_CLIENT_ID }}
+      VIMEO_CLIENT_SECRET: ${{ secrets.VIMEO_CLIENT_SECRET }}
+      VIMEO_ACCESS_TOKEN: ${{ secrets.VIMEO_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load dataset env and dirs
+        run: |
+          set -euo pipefail
+          set -a; source "datasets/${DATASET_NAME}.env"; set +a
+          case "${ZYRA_VERBOSITY}" in debug) echo "ZYRA_CLI_VERBOSE_FLAG=-v" >> "$GITHUB_ENV";; esac
+          echo "OUTPUT_PATH=/data/output/${DATASET_NAME}.mp4" >> "$GITHUB_ENV"
+          {
+            echo "DATASET_ID=${DATASET_ID-}"
+            echo "FTP_HOST=${FTP_HOST-}"
+            echo "FTP_PATH=${FTP_PATH-}"
+            echo "SINCE_PERIOD=${SINCE_PERIOD-}"
+            echo "PERIOD_SECONDS=${PERIOD_SECONDS-}"
+            echo "PATTERN=${PATTERN-}"
+            echo "DATE_FORMAT=${DATE_FORMAT-}"
+            echo "BASEMAP_IMAGE=${BASEMAP_IMAGE-}"
+            echo "VIMEO_URI=${VIMEO_URI-}"
+            echo "S3_URL=${S3_URL-}"
+          } >> "$GITHUB_ENV"
+
+      - name: Upload video to Vimeo
+        run: |
+          zyra ${ZYRA_CLI_VERBOSE_FLAG:-} decimate vimeo \
+            --input "${OUTPUT_PATH}" \
+            --replace-uri ${VIMEO_URI}
+
+  update-metadata:
+    if: ${{ env.DATASET_NAME != '' && secrets.AWS_ACCESS_KEY_ID != '' && secrets.AWS_SECRET_ACCESS_KEY != '' }}
+    name: Update S3 dataset.json
+    runs-on: ubuntu-latest
+    needs: [validate-frames, upload-vimeo]
+    container:
+      image: ${{ env.ZYRA_SCHEDULER_IMAGE }}
+      options: >-
+        --entrypoint ""
+        --volume ${{ github.workspace }}:/app
+        --volume ${{ github.workspace }}/_work:/data
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load dataset env and dirs
+        run: |
+          set -euo pipefail
+          set -a; source "datasets/${DATASET_NAME}.env"; set +a
+          case "${ZYRA_VERBOSITY}" in debug) echo "ZYRA_CLI_VERBOSE_FLAG=-v" >> "$GITHUB_ENV";; esac
+          echo "FRAMES_DIR=/data/images/${DATASET_NAME}" >> "$GITHUB_ENV"
+          echo "OUTPUT_PATH=/data/output/${DATASET_NAME}.mp4" >> "$GITHUB_ENV"
+          {
+            echo "DATASET_ID=${DATASET_ID-}"
+            echo "FTP_HOST=${FTP_HOST-}"
+            echo "FTP_PATH=${FTP_PATH-}"
+            echo "SINCE_PERIOD=${SINCE_PERIOD-}"
+            echo "PERIOD_SECONDS=${PERIOD_SECONDS-}"
+            echo "PATTERN=${PATTERN-}"
+            echo "DATE_FORMAT=${DATE_FORMAT-}"
+            echo "BASEMAP_IMAGE=${BASEMAP_IMAGE-}"
+            echo "VIMEO_URI=${VIMEO_URI-}"
+            echo "S3_URL=${S3_URL-}"
+          } >> "$GITHUB_ENV"
+
+      - name: Restore frame cache
+        uses: actions/cache@v4
+        with:
+          path: /data/images/${{ env.DATASET_NAME }}
+          key: ${{ runner.os }}-frames-${{ env.DATASET_NAME }}
+
+      - name: Backup existing dataset.json from S3
+        run: |
+          if [[ -z "${S3_URL:-}" ]]; then
+            echo "S3_URL is not set in datasets/${DATASET_NAME}.env; skipping." >&2
+            exit 0
+          fi
+          zyra ${ZYRA_CLI_VERBOSE_FLAG:-} acquire s3 \
+            --url ${S3_URL} \
+            --output "${FRAMES_DIR}/metadata/dataset.json.bak"
+
+      - name: Update dataset.json in S3
+        run: |
+          if [[ -z "${S3_URL:-}" ]]; then
+            echo "S3_URL is not set; skipping update." >&2
+            exit 0
+          fi
+          zyra ${ZYRA_CLI_VERBOSE_FLAG:-} transform update-dataset-json \
+            --input-url ${S3_URL} \
+            --dataset-id ${DATASET_ID} \
+            --meta "${FRAMES_DIR}/metadata/frames-meta.json" \
+            --vimeo-uri ${VIMEO_URI} \
+            --output - | zyra ${ZYRA_CLI_VERBOSE_FLAG:-} decimate s3 \
+            --read-stdin \
+            --url ${S3_URL}
+
+      - name: Upload update artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: metadata-${{ env.DATASET_NAME }}
+          path: |
+            /data/images/${{ env.DATASET_NAME }}/metadata/dataset.json.bak
+            /data/images/${{ env.DATASET_NAME }}/metadata/frames-meta.json

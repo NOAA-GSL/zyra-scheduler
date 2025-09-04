@@ -1,25 +1,36 @@
-# Real-Time Video Processing and Distribution System
-
-[![pipeline status](https://gitlab.sos.noaa.gov/science-on-a-sphere/datasets/real-time-video/badges/main/pipeline.svg)](https://gitlab.sos.noaa.gov/science-on-a-sphere/datasets/real-time-video/-/commits/main)
+# Zyra Workflow Template
 
 ## Overview
-This repository orchestrates a real‑time video workflow using the [zyra](https://github.com/NOAA-GSL/zyra) library (FTP sync, base image → video processing, Vimeo upload, and S3 metadata updates).
+This repository is a starter template for building containerized workflows with the [Zyra](https://github.com/NOAA-GSL/zyra) CLI. It provides a ready‑to‑use dev container, a reusable GitHub Actions workflow, and example datasets to demonstrate a full pipeline. Clone and adapt it to your own sources, transforms, and outputs.
 
-## Docs & Scheduling
-- Scheduling: use GitLab CI/CD pipelines and Schedules (see below).
+Included example: a real‑time image‑to‑video pipeline (FTP → metadata validate → MP4 compose → optional Vimeo upload → optional S3 update). Treat this as a reference implementation you can modify or replace with your own stages.
+
+## Usage & Scheduling
+- Primary CI: GitHub Actions (reusable workflow and per‑dataset wrappers).
 - Contributor guide: see `AGENTS.md` for structure, style, testing, and PR guidelines.
-- Local development: use `docker compose up --build -d` and `docker compose exec zyra-scheduler bash`. The devcontainer prefers a `zyra-scheduler` base image (if provided) and layers Node.js + Codex CLI for local tooling. If none is provided, it falls back to `python:3.11-slim` for linting/tests.
+- Local development: `docker compose up --build -d` and `docker compose exec zyra-scheduler bash`. The devcontainer layers Node.js + Codex CLI on top of a runtime image. If no runtime is provided, it falls back to `python:3.11-slim` for lint/tests.
 
-### GitLab Pipelines
-- Manual run: set variables in the Run pipeline form:
-  - `DATASET_NAME`: dataset env file stem (e.g., `drought` for `datasets/drought.env`).
-  - `ZYRA_SCHEDULER_IMAGE` (optional): container image to run jobs; defaults in the child template.
-- Scheduled run: configure CI variables on the schedule:
-  - `DATASET_NAME=drought`
-  - `ZYRA_SCHEDULER_IMAGE=ghcr.io/noaa-gsl/zyra-scheduler:<tag-or-digest>`
-- Stages: defined in `.gitlab-ci.yml` and run directly in the pipeline:
-  - acquire → validate → compose → upload → update
-  The jobs source `datasets/$DATASET_NAME.env` inside the container and operate under `/data`.
+### GitHub Actions
+- Reusable workflow: `.github/workflows/zyra.yml` implements the example pipeline stages (acquire → validate → compose → upload → update). Modify the steps or add your own Zyra commands to fit your needs.
+- Manual run: Actions → Zyra Video Pipeline → Run workflow with input `DATASET_NAME` (e.g., `drought`). Optional inputs: `ZYRA_VERBOSITY` and `ZYRA_SCHEDULER_IMAGE`.
+- Scheduling: use per‑dataset wrappers (below). The reusable workflow itself has no cron.
+- Runtime container: defaults to `ghcr.io/noaa-gsl/zyra-scheduler:latest`. Override with workflow input or repo variable `ZYRA_SCHEDULER_IMAGE` (prefer pinned digest).
+- Working paths: binds the repo to `/app` and a workspace data dir to `/data` inside the job container.
+- Cache: caches `/data/images/$DATASET_NAME` keyed by dataset name to speed up runs.
+- Secrets (optional stages):
+  - Vimeo upload: `VIMEO_CLIENT_ID`, `VIMEO_CLIENT_SECRET`, `VIMEO_ACCESS_TOKEN`.
+  - S3 update: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` (and `S3_URL` in the dataset env).
+
+Per‑dataset schedules (template style)
+- The main workflow is also reusable via `workflow_call`. Create tiny wrappers per dataset with their own cron and fixed dataset name.
+- Example (`.github/workflows/dataset-drought.yml`):
+  - `on.schedule: '45 4 * * *'` (daily 04:45 UTC)
+  - `jobs.run.uses: ./.github/workflows/zyra.yml`
+  - `jobs.run.with.DATASET_NAME: drought`
+  - `jobs.run.secrets: inherit` to pass Vimeo/AWS secrets.
+- Repeat for each dataset (`dataset-<name>.yml`), setting the appropriate cron and dataset env stem (must match `datasets/<name>.env`). The top‑level `zyra.yml` intentionally has no cron.
+
+###
 
 ## Setup
 - Create a `.env` from `.env.example` and set:
@@ -60,7 +71,7 @@ Security note: never commit real secrets. Keep `.env` untracked (see `.gitignore
   - `export OUTPUT_DIR="$DATA_ROOT/output"`
   - `export OUTPUT_PATH="$OUTPUT_DIR/$DATASET_NAME.mp4"`
   - `mkdir -p "$FRAMES_DIR" "$OUTPUT_DIR"`
-- Acquire frames from FTP:
+- Acquire frames from FTP (example):
   - `zyra acquire ftp "ftp://${FTP_HOST}${FTP_PATH}" --sync-dir "$FRAMES_DIR" --since-period "$SINCE_PERIOD" --pattern "$PATTERN" --date-format "$DATE_FORMAT"`
 - Validate frames and write metadata:
   - `zyra transform metadata --frames-dir "$FRAMES_DIR" --pattern "$PATTERN" --datetime-format "$DATE_FORMAT" --period-seconds "$PERIOD_SECONDS" --output "$FRAMES_DIR/metadata/frames-meta.json"`
@@ -97,24 +108,18 @@ Tips
 
 ### Quick Start: Add a Dataset
 - Create `datasets/<name>.env` with the required keys (see `datasets/README.md`).
-- Run a manual pipeline and set variable `DATASET_NAME=<name>` to validate:
+- Run the GitHub Actions workflow manually with input `DATASET_NAME=<name>` to validate:
   - Acquire → frames under `/data/images/${DATASET_ID}`.
   - Validate → metadata under `/data/images/${DATASET_ID}/metadata/frames-meta.json`.
   - Compose → video at `/data/output/${DATASET_ID}.mp4`.
-- Configure credentials for upload/update stages via GitHub Secrets or CI/CD variables (Vimeo and AWS). For local development, place non-secret values in your project `.env` and keep it untracked.
-- Schedule it: CI/CD → Schedules → add `DATASET_NAME=<name>` (and optional `ZYRA_SCHEDULER_IMAGE`).
+-- Configure credentials for upload/update stages via GitHub Secrets (Vimeo and AWS). For local development, place non-secret values in your project `.env` and keep it untracked.
+- Schedule it: enable a cron in the per‑dataset wrapper under `.github/workflows/` (uncomment the `schedule:` block), or create your own wrapper with the desired cron.
 
-#### Scheduling Options (GitLab)
-- Target branch: set the schedule’s target to `main` (or another branch) so it runs against that ref.
-- Cron format: use standard 5-field cron in the UI.
-  - Examples: `30 3 * * *` (daily 03:30), `5 12 * * 4` (Thu 12:05).
-  - Timezone: pick the desired TZ in the schedule; cron is interpreted relative to this.
-- Variables per schedule: add `DATASET_NAME=<env-stem>` for each dataset. Create one schedule per dataset.
-  - Optionally pin the image: `ZYRA_SCHEDULER_IMAGE=ghcr.io/noaa-gsl/zyra-scheduler@sha256:<digest>` for reproducibility.
-- Concurrency: enable multiple schedules as needed; jobs use per-dataset caches and won’t collide.
-- Reliability tips:
-  - Start with a modest `SINCE_PERIOD` (e.g., `P30D`) to seed caches faster, then widen.
-  - Use pinned container digests in production schedules to avoid surprises.
+#### Scheduling Tips
+- Cron examples: `30 3 * * *` (daily 03:30), `5 12 * * 4` (Thu 12:05). Times are UTC in GitHub Actions.
+- Variables: set `DATASET_NAME` in the wrapper’s `with:` section; use repo variables to share defaults (e.g., `ZYRA_SCHEDULER_IMAGE`).
+- Concurrency: multiple wrappers can run concurrently; frames are cached per dataset.
+- Reliability: pin the container image by digest; start with a smaller `SINCE_PERIOD` (e.g., `P30D`) to seed caches faster.
 
 ### Current Datasets
 The following datasets are configured in `datasets/*.env`. Suggested schedules are listed for convenience; configure CI/CD Schedules to match your needs.
@@ -136,8 +141,7 @@ The following datasets are configured in `datasets/*.env`. Suggested schedules a
 Notes
 - Basemap: when `BASEMAP_IMAGE` is set in the dataset env, the compose stage includes it via `--basemap <file>`.
 - Cadence: derived from `PERIOD_SECONDS` in each env; adjust to match source update intervals.
-- CI schedules: replicate the cadence/offsets above as needed using GitLab’s Scheduled Pipelines (set `DATASET_NAME=<env stem>`).
+  
 
 ## Notes
-- The CI image entrypoint is overridden so GitLab can run shell scripts inside the container. If you override images, ensure they include `zyra` and required dependencies.
 - Prefer immutable tags or pin by digest for reliability in CI. Avoid mutating tags in place.
