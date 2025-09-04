@@ -122,7 +122,14 @@ Tips
 - Reliability: pin the container image by digest; start with a smaller `SINCE_PERIOD` (e.g., `P30D`) to seed caches faster.
 
 ### Current Datasets
-The following datasets are configured in `datasets/*.env`. Suggested schedules are listed for convenience; configure CI/CD Schedules to match your needs.
+These are example datasets provided for demonstration. Each has a per‑dataset workflow under `.github/workflows/` with its cron schedule commented out. You can still run any of them manually from GitHub → Actions by choosing the corresponding dataset workflow, or re‑enable its schedule by uncommenting the `schedule:` block.
+
+The following examples are configured in `datasets/*.env`. Suggested crons are shown for reference if you choose to re‑enable scheduling.
+
+How to run manually
+- GitHub → Actions → choose the per‑dataset workflow (e.g., “Dataset (drought)”).
+- Click “Run workflow” and confirm the branch (typically `main`).
+- The run will use the dataset’s `.env` and produce artifacts under `_work/`.
 
 | Dataset (env) | Suggested Cron | When | Cadence | FTP (host + path) | Pattern | Basemap | Vimeo |
 |---|---|---|---|---|---|---|---|
