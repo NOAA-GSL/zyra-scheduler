@@ -1,0 +1,139 @@
+{{- $root := . -}}
+{{- range $i, $ds := .Values.datasets }}
+{{- if $ds.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "zyra.datasetName" (list $root $ds) }}
+  labels:
+    {{- include "zyra.labels" $root | nindent 4 }}
+spec:
+  schedule: {{ $ds.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            {{- include "zyra.labels" $root | nindent 12 }}
+        spec:
+          restartPolicy: Never
+          {{- if $root.Values.global.imagePullSecrets }}
+          imagePullSecrets:
+          {{- range $root.Values.global.imagePullSecrets }}
+            - name: {{ . | quote }}
+          {{- end }}
+          {{- end }}
+          containers:
+            - name: zyra
+              image: {{ $root.Values.global.image | quote }}
+              imagePullPolicy: IfNotPresent
+              resources:
+                {{- toYaml $root.Values.global.resources | nindent 16 }}
+              env:
+                - name: DATASET_NAME
+                  value: {{ $ds.name | quote }}
+                - name: ZYRA_VERBOSITY
+                  value: {{ $root.Values.global.verbosity | quote }}
+              envFrom:
+                {{- if $ds.envFromConfigMap }}
+                - configMapRef:
+                    name: {{ $ds.envFromConfigMap | quote }}
+                {{- else if $ds.env }}
+                - configMapRef:
+                    name: {{ include "zyra.configmapName" (list $root $ds) }}
+                {{- end }}
+                {{- if $ds.vimeoSecretName }}
+                - secretRef:
+                    name: {{ $ds.vimeoSecretName | quote }}
+                {{- end }}
+                {{- if $ds.awsSecretName }}
+                - secretRef:
+                    name: {{ $ds.awsSecretName | quote }}
+                {{- end }}
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+              command: ["/bin/sh","-lc"]
+              args:
+                - |
+                  set -euo pipefail
+                  echo "Running Zyra dataset: ${DATASET_NAME}"
+                  zyra --version || true
+
+                  FRAMES_DIR="/data/images/${DATASET_NAME}"
+                  OUTPUT_DIR="/data/output"
+                  OUTPUT_PATH="${OUTPUT_DIR}/${DATASET_NAME}.mp4"
+                  mkdir -p "${FRAMES_DIR}" "${OUTPUT_DIR}" "${FRAMES_DIR}/metadata"
+
+                  set +e
+                  zyra ${ZYRA_CLI_VERBOSE_FLAG:-} acquire ftp \
+                    ftp://${FTP_HOST}${FTP_PATH} \
+                    --sync-dir "${FRAMES_DIR}" \
+                    --since-period "${SINCE_PERIOD}" \
+                    --pattern "${PATTERN}" \
+                    --date-format "${DATE_FORMAT}"
+                  rc=$?
+                  set -e
+                  if [ $rc -ne 0 ]; then
+                    echo "Acquire rc=$rc; checking for any preexisting frames..."
+                  fi
+                  dl_count=$(find "${FRAMES_DIR}" -maxdepth 1 -type f \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' \) | wc -l)
+                  if [ "$dl_count" -eq 0 ]; then
+                    echo "No frames present after acquire; failing."
+                    exit ${rc}
+                  fi
+
+                  zyra ${ZYRA_CLI_VERBOSE_FLAG:-} transform metadata \
+                    --frames-dir "${FRAMES_DIR}" \
+                    --pattern "${PATTERN}" \
+                    --datetime-format "${DATE_FORMAT}" \
+                    --period-seconds ${PERIOD_SECONDS} \
+                    --output "${FRAMES_DIR}/metadata/frames-meta.json"
+
+                  if [ -n "${BASEMAP_IMAGE:-}" ]; then
+                    zyra ${ZYRA_CLI_VERBOSE_FLAG:-} visualize compose-video \
+                      --frames "${FRAMES_DIR}" \
+                      --output "${OUTPUT_PATH}" \
+                      --basemap "${BASEMAP_IMAGE}"
+                  else
+                    zyra ${ZYRA_CLI_VERBOSE_FLAG:-} visualize compose-video \
+                      --frames "${FRAMES_DIR}" \
+                      --output "${OUTPUT_PATH}"
+                  fi
+                  test -s "${OUTPUT_PATH}" || { echo "No video produced" >&2; exit 1; }
+
+                  if [ -n "${VIMEO_ACCESS_TOKEN:-}" ] && [ -n "${VIMEO_CLIENT_ID:-}" ] && [ -n "${VIMEO_CLIENT_SECRET:-}" ]; then
+                    zyra ${ZYRA_CLI_VERBOSE_FLAG:-} decimate vimeo \
+                      --input "${OUTPUT_PATH}" \
+                      --replace-uri ${VIMEO_URI}
+                  else
+                    echo "Skipping Vimeo upload: secrets not set"
+                  fi
+
+                  if [ -n "${AWS_ACCESS_KEY_ID:-}" ] && [ -n "${AWS_SECRET_ACCESS_KEY:-}" ] && [ -n "${S3_URL:-}" ]; then
+                    zyra ${ZYRA_CLI_VERBOSE_FLAG:-} acquire s3 \
+                      --url ${S3_URL} \
+                      --output "${FRAMES_DIR}/metadata/dataset.json.bak"
+                    zyra ${ZYRA_CLI_VERBOSE_FLAG:-} transform update-dataset-json \
+                      --input-url ${S3_URL} \
+                      --dataset-id ${DATASET_ID} \
+                      --meta "${FRAMES_DIR}/metadata/frames-meta.json" \
+                      --vimeo-uri ${VIMEO_URI} \
+                      --output - | zyra ${ZYRA_CLI_VERBOSE_FLAG:-} decimate s3 \
+                      --read-stdin \
+                      --url ${S3_URL}
+                  else
+                    echo "Skipping S3 update: AWS creds or S3_URL not set"
+                  fi
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: {{ $root.Values.global.pvc.name }}
+---
+{{- end }}
+{{- end }}
+

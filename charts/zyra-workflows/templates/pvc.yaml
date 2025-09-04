@@ -1,0 +1,18 @@
+{{- if .Values.global.pvc.create }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.global.pvc.name }}
+  labels:
+    {{- include "zyra.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.global.pvc.size }}
+  {{- if .Values.global.pvc.storageClassName }}
+  storageClassName: {{ .Values.global.pvc.storageClassName | quote }}
+  {{- end }}
+{{- end }}
+

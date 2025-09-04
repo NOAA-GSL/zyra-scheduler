@@ -53,6 +53,15 @@ Notes
 - Contributor guide: see `AGENTS.md` for structure, style, testing, and PR guidelines.
 - Local development: `docker compose up --build -d` and `docker compose exec zyra-scheduler bash`. The devcontainer layers Node.js + Codex CLI on top of a runtime image. If no runtime is provided, it falls back to `python:3.11-slim` for lint/tests.
 
+### Kubernetes (Rancher) Deployment
+- Example manifests under `k8s/` for running datasets as CronJobs with a persistent cache/output volume.
+- Workflow:
+  - Create a ConfigMap from `datasets/<name>.env` (non‑secrets).
+  - Create Secrets for `VIMEO_*` and `AWS_*` if you use upload/update.
+  - Create a PVC (`k8s/pvc.yaml`) for `/data` to persist frames/outputs across runs.
+  - Apply a dataset CronJob (e.g., `k8s/cronjob-drought.yaml`) and set a schedule.
+- Start here: see `k8s/README.md` for a step‑by‑step guide and `cronjob-template.yaml` to copy for other datasets.
+
 ### GitHub Actions
 - Reusable workflow: `.github/workflows/zyra.yml` implements the example pipeline stages (acquire → validate → compose → upload → update). Modify the steps or add your own Zyra commands to fit your needs.
 - Manual run: Actions → Zyra Video Pipeline → Run workflow with input `DATASET_NAME` (e.g., `drought`). Optional inputs: `ZYRA_VERBOSITY` and `ZYRA_SCHEDULER_IMAGE`.

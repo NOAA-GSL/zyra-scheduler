@@ -1,0 +1,42 @@
+# Note: This values file includes SAMPLE defaults. Adjust image, PVC, and datasets
+# to your environment. The datasets block is empty by default — use the example
+# below as a starting point.
+
+global:
+  image: ghcr.io/noaa-gsl/zyra-scheduler:latest
+  imagePullSecrets: []
+  verbosity: info
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  pvc:
+    create: true
+    name: zyra-data
+    storageClassName: ""
+    size: 20Gi
+
+datasets: []
+# Example (sample dataset entry):
+# datasets:
+#   - name: drought
+#     enabled: true
+#     schedule: "5 12 * * 4"
+#     # Option A: reference an existing ConfigMap with dataset env
+#     envFromConfigMap: "dataset-drought"
+#     # Option B: inline env to generate a ConfigMap automatically
+#     # env:
+#     #   DATASET_ID: INTERNAL_SOS_DROUGHT_RT
+#     #   FTP_HOST: ftp.nnvl.noaa.gov
+#     #   FTP_PATH: /SOS/DroughtRisk_Weekly
+#     #   VIMEO_URI: /videos/900195230
+#     #   SINCE_PERIOD: P1Y
+#     #   PERIOD_SECONDS: "604800"
+#     #   PATTERN: ^DroughtRisk_Weekly_[0-9]{8}\.png$
+#     #   DATE_FORMAT: %Y%m%d
+#     #   BASEMAP_IMAGE: ""
+#     vimeoSecretName: vimeo-secrets
+#     awsSecretName: aws-secrets
