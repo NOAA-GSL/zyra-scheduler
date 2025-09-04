@@ -54,6 +54,7 @@ Notes
 - Local development: `docker compose up --build -d` and `docker compose exec zyra-scheduler bash`. The devcontainer layers Node.js + Codex CLI on top of a runtime image. If no runtime is provided, it falls back to `python:3.11-slim` for lint/tests.
 
 ### Kubernetes (Rancher) Deployment
+- Badges: [![Examples](https://img.shields.io/badge/Examples-Sample%20Manifests-blue)](k8s/README.md) [![Examples](https://img.shields.io/badge/Examples-Helm%20Chart-blue)](charts/zyra-workflows/README.md)
 - Example manifests under `k8s/` for running datasets as CronJobs with a persistent cache/output volume.
 - Workflow:
   - Create a ConfigMap from `datasets/<name>.env` (non‑secrets).
