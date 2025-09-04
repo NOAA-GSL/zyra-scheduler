@@ -1,6 +1,19 @@
+# Zyra Workflow Template (Example)
+#
+# This reusable GitHub Actions workflow shows how to orchestrate Zyra CLI stages
+# (acquire → validate → compose → upload → update) in containers. It is meant as
+# a starting point you can clone and adapt for your own sources, transforms, and
+# outputs. Key patterns demonstrated here:
+# - Reusable workflow with `workflow_call` and per-dataset wrappers for cron.
+# - Reading dataset configuration from `datasets/<name>.env`.
+# - Using the repository workspace (`_work/`) for caches and artifacts.
+# - Running container jobs as root to avoid file-command permission issues.
+# - Verifying required secrets at step time (not job-level) and failing early.
+# - Uploading artifacts for traceability and debugging.
 name: Zyra Video Pipeline
 
 on:
+  # Manual trigger with inputs (great for testing or ad-hoc runs).
   workflow_dispatch:
     inputs:
       DATASET_NAME:
@@ -17,6 +30,7 @@ on:
         description: Override container image
         required: false
         type: string
+  # Reusable workflow: per-dataset wrappers call this with fixed inputs.
   workflow_call:
     inputs:
       DATASET_NAME:
@@ -34,7 +48,8 @@ on:
         type: string
 
 env:
-  # Prefer workflow inputs; otherwise fall back to repository variables
+  # Global environment defaults available to all steps.
+  # Prefer workflow inputs; otherwise fall back to repository variables.
   DATASET_NAME: ${{ inputs.DATASET_NAME || vars.DATASET_NAME }}
   ZYRA_VERBOSITY: ${{ inputs.ZYRA_VERBOSITY || vars.ZYRA_VERBOSITY || 'info' }}
   ZYRA_SCHEDULER_IMAGE: ${{ inputs.ZYRA_SCHEDULER_IMAGE || vars.ZYRA_SCHEDULER_IMAGE || 'ghcr.io/noaa-gsl/zyra-scheduler:latest' }}
@@ -44,13 +59,14 @@ defaults:
     shell: bash
 
 jobs:
+  # Stage 1: Acquire raw frames from FTP into _work/images/<dataset>
   acquire-images:
     if: ${{ (inputs.DATASET_NAME || vars.DATASET_NAME) != '' }}
     name: Acquire images
     runs-on: ubuntu-latest
     container:
       image: ${{ inputs.ZYRA_SCHEDULER_IMAGE || vars.ZYRA_SCHEDULER_IMAGE || 'ghcr.io/noaa-gsl/zyra-scheduler:latest' }}
-      # Run as root for file command perms (checkout state files)
+      # Run as root for file-command perms (GitHub runner mounts state files).
       options: >-
         --entrypoint ""
         --user 0
@@ -69,6 +85,7 @@ jobs:
         id: prep
         run: |
           set -euo pipefail
+          # Resolve and validate dataset selection.
           if [[ -z "${DATASET_NAME}" ]]; then
             echo "DATASET_NAME is not set. Exiting." >&2
             exit 1
@@ -88,7 +105,8 @@ jobs:
 
           zyra --version || true
 
-          # Working dirs inside container (use workspace '_work')
+          # Use the repository workspace for all IO to avoid container FS quirks.
+          # This makes caching/artifacts straightforward and cross-image safe.
           echo "DATA_ROOT=${GITHUB_WORKSPACE}/_work" >> "$GITHUB_ENV"
           echo "FRAMES_DIR=${GITHUB_WORKSPACE}/_work/images/${DATASET_NAME}" >> "$GITHUB_ENV"
           echo "OUTPUT_DIR=${GITHUB_WORKSPACE}/_work/output" >> "$GITHUB_ENV"
@@ -165,6 +183,7 @@ jobs:
             _work/images/${{ inputs.DATASET_NAME || vars.DATASET_NAME }}/preview
           retention-days: 7
 
+  # Stage 2: Validate frames and emit metadata (cadence, timestamps).
   validate-frames:
     if: ${{ (inputs.DATASET_NAME || vars.DATASET_NAME) != '' }}
     name: Validate frames
@@ -183,6 +202,8 @@ jobs:
       VIMEO_ACCESS_TOKEN: ${{ secrets.VIMEO_ACCESS_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+
+      
 
       - name: Load dataset env and dirs
         run: |
@@ -227,6 +248,7 @@ jobs:
           name: metadata-${{ inputs.DATASET_NAME || vars.DATASET_NAME }}
           path: _work/images/${{ inputs.DATASET_NAME || vars.DATASET_NAME }}/metadata/frames-meta.json
 
+  # Stage 3: Compose frames into an MP4 (optionally with a basemap).
   compose-video:
     if: ${{ (inputs.DATASET_NAME || vars.DATASET_NAME) != '' }}
     name: Compose video
@@ -294,6 +316,8 @@ jobs:
           path: _work/output/${{ inputs.DATASET_NAME || vars.DATASET_NAME }}.mp4
           retention-days: 7
 
+  # Stage 4 (optional): Upload the rendered MP4 to Vimeo.
+  # Fails early if the required Vimeo secrets are missing.
   upload-vimeo:
     if: ${{ (inputs.DATASET_NAME || vars.DATASET_NAME) != '' }}
     name: Upload to Vimeo
@@ -310,6 +334,14 @@ jobs:
       VIMEO_ACCESS_TOKEN: ${{ secrets.VIMEO_ACCESS_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Verify Vimeo secrets
+        run: |
+          set -euo pipefail
+          if [[ -z "${VIMEO_ACCESS_TOKEN:-}" || -z "${VIMEO_CLIENT_ID:-}" || -z "${VIMEO_CLIENT_SECRET:-}" ]]; then
+            echo "Missing Vimeo secrets (VIMEO_ACCESS_TOKEN/CLIENT_ID/CLIENT_SECRET); failing job." >&2
+            exit 1
+          fi
 
       - name: Load dataset env and dirs
         run: |
@@ -331,12 +363,13 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Upload video to Vimeo
-        if: ${{ env.VIMEO_ACCESS_TOKEN != '' }}
         run: |
           zyra ${ZYRA_CLI_VERBOSE_FLAG:-} decimate vimeo \
             --input "${OUTPUT_PATH}" \
             --replace-uri ${VIMEO_URI}
 
+  # Stage 5 (optional): Update dataset.json on S3 with latest metadata.
+  # Fails early if AWS creds or S3_URL are absent.
   update-metadata:
     if: ${{ (inputs.DATASET_NAME || vars.DATASET_NAME) != '' }}
     name: Update S3 dataset.json
@@ -352,6 +385,14 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Verify AWS credentials
+        run: |
+          set -euo pipefail
+          if [[ -z "${AWS_ACCESS_KEY_ID:-}" || -z "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
+            echo "Missing AWS credentials (AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY); failing job." >&2
+            exit 1
+          fi
 
       - name: Load dataset env and dirs
         run: |
@@ -373,6 +414,14 @@ jobs:
             echo "S3_URL=${S3_URL-}"
           } >> "$GITHUB_ENV"
 
+      - name: Verify S3_URL configured
+        run: |
+          set -euo pipefail
+          if [[ -z "${S3_URL:-}" ]]; then
+            echo "S3_URL is not set in datasets/${DATASET_NAME}.env; failing job." >&2
+            exit 1
+          fi
+
       - name: Restore frame cache
         uses: actions/cache@v4
         with:
@@ -380,23 +429,13 @@ jobs:
           key: ${{ runner.os }}-frames-${{ inputs.DATASET_NAME || vars.DATASET_NAME }}
 
       - name: Backup existing dataset.json from S3
-        if: ${{ env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != '' }}
         run: |
-          if [[ -z "${S3_URL:-}" ]]; then
-            echo "S3_URL is not set in datasets/${DATASET_NAME}.env; skipping." >&2
-            exit 0
-          fi
           zyra ${ZYRA_CLI_VERBOSE_FLAG:-} acquire s3 \
             --url ${S3_URL} \
             --output "${FRAMES_DIR}/metadata/dataset.json.bak"
 
       - name: Update dataset.json in S3
-        if: ${{ env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != '' }}
         run: |
-          if [[ -z "${S3_URL:-}" ]]; then
-            echo "S3_URL is not set; skipping update." >&2
-            exit 0
-          fi
           zyra ${ZYRA_CLI_VERBOSE_FLAG:-} transform update-dataset-json \
             --input-url ${S3_URL} \
             --dataset-id ${DATASET_ID} \
